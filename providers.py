@@ -7,7 +7,7 @@ from google.api_core.exceptions import InternalServerError
 genai.configure(api_key=gkey)
 model = genai.GenerativeModel('gemini-pro', generation_config=generation_config, safety_settings=safety_config)
 history_clients = {}
-
+max_length = 2000
 
 async def question_gemini(context):
     try:
@@ -33,6 +33,9 @@ async def chat_gemini(context, user):
 
         answers = [message.parts[0].text for message in chat.history if message.role == 'model']
         answer = answers[-1]
+
+        if len(answer) > max_length:
+            answer = answer.splitlines()
 
     except InternalServerError:
         return await chat_gemini(context, user)

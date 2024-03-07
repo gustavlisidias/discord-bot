@@ -31,4 +31,9 @@ async def on_message(message):
         if erro:
             await message.channel.send(erro)
         else:
-            await message.channel.send(resposta[:2000])
+            if isinstance(resposta, list):
+                for frase in resposta:
+                    if frase:
+                        await message.channel.send(frase)
+            else:
+                await message.channel.send(resposta)
