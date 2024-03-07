@@ -4,11 +4,12 @@ import asyncio
 import validators
 
 from settings import bot, ytdl, ffmpeg_path, ffmpeg_options
+from providers import question_gemini
 from youtube_search import YoutubeSearch
+
 
 voice_clients = {}
 queue_clients = {}
-
 
 @bot.command(name='test', help='Command to test parameters of a function')
 async def test(ctx, *args):
@@ -136,14 +137,10 @@ async def skip(ctx):
             if voice_clients[ctx.guild.id].is_playing():
                 await stop(ctx)
 
-            url = queue_clients[ctx.guild.id].pop(0)            
+            url = queue_clients[ctx.guild.id].pop(0)
             loop = asyncio.get_event_loop()
             data = await loop.run_in_executor(None, lambda: ytdl.extract_info(url, download=False))
             song = data['url']
-            
-            # player = discord.FFmpegOpusAudio(song, executable=ffmpeg_path, **ffmpeg_options)
-            # voice_clients[ctx.guild.id].play(player)
-
             player = discord.FFmpegPCMAudio(song, executable=ffmpeg_path, **ffmpeg_options)
             player = discord.PCMVolumeTransformer(original=player, volume=0.8)
             voice_clients[ctx.guild.id].play(player, after=lambda e: asyncio.run_coroutine_threadsafe(skip(ctx), bot.loop))
@@ -156,3 +153,14 @@ async def skip(ctx):
 
     except Exception as e:
         await ctx.send(f'Ocorreu um erro ao tocar a próxima música: {e}')
+
+
+@bot.command(name='question', help='Make a question for Gemini IA')
+async def question(ctx, *args):
+    query = ' '.join(args)
+    try:
+        resposta = await question_gemini(query)
+        await ctx.send(resposta)
+
+    except Exception as e:
+        await ctx.send(f'Ocorreu um erro ao realizar a pergunta: {e}')
