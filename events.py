@@ -1,7 +1,9 @@
-from settings import bot, prefix
-from providers import chat_gemini
-
 import discord
+import io
+
+from settings import bot, prefix
+from gemini import chat_gemini
+from PIL import Image
 
 
 @bot.event
@@ -27,7 +29,23 @@ async def on_message(message):
         await bot.process_commands(message)
 
     if isinstance(message.channel, discord.DMChannel):
-        resposta, erro = await chat_gemini(message.content, message.author.id)
+        image = None
+        if message.attachments:
+            for attachment in message.attachments:
+                if attachment.width is not None and attachment.height is not None:
+                    try:
+                        img_content = await attachment.read()
+                        image = Image.open(io.BytesIO(img_content))
+                        
+                    except Exception as e:
+                        await message.channel.send(f'Erro ao abrir a imagem: {e}')
+                        return
+                else:
+                    await message.channel.send('Desculpe. Tenho permissão para responder apenas mensagens de texto e imagens.')
+                    return
+            
+
+        resposta, erro = await chat_gemini(message.content, message.author.id, image)
         if erro:
             await message.channel.send(erro)
         else:

@@ -2,10 +2,12 @@ import random
 import discord
 import asyncio
 import validators
+import io
 
 from settings import bot, ytdl, ffmpeg_path, ffmpeg_options
-from providers import question_gemini
+from gemini import question_gemini, vision_gemini
 from youtube_search import YoutubeSearch
+from PIL import Image
 
 
 voice_clients = {}
@@ -164,3 +166,23 @@ async def question(ctx, *args):
 
     except Exception as e:
         await ctx.send(f'Ocorreu um erro ao realizar a pergunta: {e}')
+
+
+@bot.command(name='vision', help='Generate text from image and text inputs from Gemini Vision IA')
+async def vision(ctx, *args):
+    query = ' '.join(args)
+
+    if ctx.message.attachments:
+        for attachment in ctx.message.attachments:
+            if attachment.width is not None and attachment.height is not None:
+                try:
+                    img_content = await attachment.read()
+                    img = Image.open(io.BytesIO(img_content))
+                    resposta = await vision_gemini(query, img)
+                    await ctx.send(resposta)
+                    
+                except Exception as e:
+                    await ctx.send(f'Erro ao abrir a imagem: {e}')
+                    return
+                
+            await ctx.send('A mensagem não possui uma imagem')
