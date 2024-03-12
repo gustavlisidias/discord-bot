@@ -1,6 +1,10 @@
+# Doc: https://ai.google.dev/tutorials/python_quickstart
 import google.generativeai as genai
 
 from settings import gkey, generation_config, safety_config
+from models import Mensagem, Sala
+from utils import image_to_byte
+
 from google.api_core.exceptions import InternalServerError
 from google.generativeai.types import content_types
 from google.generativeai.generative_models import ChatSession
@@ -15,17 +19,6 @@ max_length = 2000
 
 
 def create_history(*args):
-    '''
-    In this model we have the following scenarios:
-    1 - Generation of text with context (text-only)
-    2 - Chat with context (history)
-    3 - Chat with context and image (history)
-    4 - Image with context (text-only)
-    5 - Image without context (text-only)
-
-    So as the only case when there is no context is the generation of text/description from an image we should deal with it here
-    because history needs a context
-    '''
     history = []
     for obj in args:
         content = obj['text'] or 'Me diga o que está escrito na imagem ou me dê detalhes do que a imagem se trata'
@@ -36,19 +29,41 @@ def create_history(*args):
     return history
 
 
-async def question_gemini(context):
+async def question_gemini(ctx, arguments):
     '''
     For: Generate text from text inputs
     '''
     try:
-      response = gemini.generate_content(context)
+      response = gemini.generate_content(arguments)
+      sala = await Sala(servidor=ctx.guild.id).get()
+      await Mensagem(sala=sala, autor=ctx.author.id, mensagem=arguments, resposta=response.text).save()
       return response.text
     
     except InternalServerError:
-        return await question_gemini(context)
+        return await question_gemini(arguments)
   
     except Exception as e:
         return f'Ops! Something went wrong: {e}'
+    
+
+async def vision_gemini(ctx, arguments, image):
+    '''
+    For: Send images with or without context
+    '''
+    try:
+        if arguments:
+            response = geminivs.generate_content([arguments, image])
+        else:
+            response = geminivs.generate_content(image)
+            
+        response.resolve()
+        sala = await Sala(servidor=ctx.guild.id).get()
+        await Mensagem(sala=sala, autor=ctx.author.id, mensagem=arguments, resposta=response.text, arquivo=image_to_byte(image)).save()
+        return response.text
+
+    except Exception as e:
+        error = f'Ops! Something went wrong: {e}'
+        return error
     
 
 async def chat_gemini(context, user, image):
@@ -63,6 +78,10 @@ async def chat_gemini(context, user, image):
     if user not in history_clients:
         history_clients[user] = []
 
+    mensagens = await Mensagem(autor=user).get()
+    for mensagem in mensagens:
+        history_clients[user] += create_history({'text': mensagem['mensagem'], 'role': 'user'}, {'text': mensagem['resposta'], 'role': 'model'})
+
     answer, error = None, None
 
     if image:
@@ -74,8 +93,7 @@ async def chat_gemini(context, user, image):
 
             response.resolve()
             answer = response.text
-
-            history_clients[user] += create_history({'text': context, 'role': 'user'}, {'text': answer, 'role': 'model'})
+            await Mensagem(autor=user, mensagem=context, arquivo=image_to_byte(image), resposta=answer).save()
 
         except InternalServerError:
             return await chat_gemini(context, user, image)
@@ -87,10 +105,10 @@ async def chat_gemini(context, user, image):
         try:
             chat = gemini.start_chat(history=history_clients[user])
             chat.send_message(context)
-            history_clients[user] += chat.history
 
             answers = [message.parts[0].text for message in chat.history if message.role == 'model']
             answer = answers[-1]
+            await Mensagem(autor=user, mensagem=context, resposta=answer).save()
 
             if len(answer) > max_length:
                 answer = answer.splitlines()
@@ -102,21 +120,3 @@ async def chat_gemini(context, user, image):
             error = f'Ops! Something went wrong: {e}'
 
     return answer, error
-
-
-async def vision_gemini(context, image):
-    '''
-    For: Send images with or without context
-    '''
-    try:
-        if context:
-            response = geminivs.generate_content([context, image])
-        else:
-            response = geminivs.generate_content(image)
-            
-        response.resolve()
-        return response.text
-
-    except Exception as e:
-        error = f'Ops! Something went wrong: {e}'
-        return error

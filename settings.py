@@ -12,6 +12,11 @@ load_dotenv()
 token = os.getenv('TOKEN')
 gkey = os.getenv('GOOGLE_KEY')
 
+pguser = os.getenv('USER_PG')
+pgpass = os.getenv('PASS_PG')
+pgbase = 'discord'
+pghost = 'localhost'
+
 intents = Intents.default()
 intents.message_content = True
 intents.messages = True
@@ -19,7 +24,8 @@ intents.guilds = True
 intents.members = True
 
 prefix = '?'
-bot = commands.Bot(command_prefix=prefix, intents=intents)
+help_command = commands.DefaultHelpCommand(no_category = 'Commands')
+bot = commands.Bot(command_prefix=commands.when_mentioned_or(prefix), help_command=help_command, intents=intents)
 
 ytdl = yt_dlp.YoutubeDL({'format': 'bestaudio/best'})
 ffmpeg_path = 'C:/ffmpeg/ffmpeg.exe'

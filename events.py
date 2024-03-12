@@ -2,22 +2,50 @@ import discord
 import io
 
 from settings import bot, prefix
+from models import Log, Sala
 from gemini import chat_gemini
 from PIL import Image
 
 
 @bot.event
 async def on_ready():
-    print("Estou conectado como {0.user}".format(bot))
+    await Log(funcao='on_ready', mensagem='conectado como {0.user}'.format(bot)).save()
+    print('Estou conectado como {0.user}'.format(bot))
+
+
+@bot.event
+async def on_guild_join(guild):
+    sala = await Sala(servidor=guild.id).get()
+    if sala:
+        await Sala(sala=guild.id, status=True).update()
+        await Log(funcao='on_guild_join', mensagem=f'servidor {guild.id} reconectado').save()
+    else:
+        await Sala(sala=guild.id, status=True).save()
+        await Log(funcao='on_guild_join', mensagem=f'servidor {guild.id} conectado').save()
+
+    channel = guild.system_channel
+    if channel.permissions_for(guild.me).send_messages:
+        await channel.send('Olá, alguem me chamou?')
+
+
+@bot.event
+async def on_guild_remove(guild):
+    try:
+        await Sala(sala=guild.id, status=False).update()
+        await Log(funcao='on_guild_remove', mensagem=f'servidor {guild.id} removido').save()
+
+    except Exception as e:
+        print(f'Ocorreu um erro ao alterar status do servidor: {e}')
 
 
 @bot.event
 async def on_member_join(member):
-    channel = bot.get_channel("7dgxRjT8")
+    channel = member.guild.system_channel
     if channel:
-        await channel.send(f"Olá {member.mention}, seja bem-vindo ao servidor!")
+        await Log(funcao='on_member_join', mensagem=f'usuario {member.id} conectado no servidor {member.guild.id}').save()
+        await channel.send(f'Olá {member.mention}, seja bem-vindo ao servidor!')
     else:
-        print("Canal não encontrado.")
+        print('Canal não encontrado.')
 
 
 @bot.event

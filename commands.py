@@ -5,6 +5,7 @@ import validators
 import io
 
 from settings import bot, ytdl, ffmpeg_path, ffmpeg_options
+from models import Sala, Comando
 from gemini import question_gemini, vision_gemini
 from youtube_search import YoutubeSearch
 from PIL import Image
@@ -13,21 +14,45 @@ from PIL import Image
 voice_clients = {}
 queue_clients = {}
 
+
 @bot.command(name='test', help='Command to test parameters of a function')
 async def test(ctx, *args):
-    arguments = ', '.join(args)
-    await ctx.send(f'{len(args)} arguments: {arguments}')
+    try:
+        arguments = ', '.join(args)
+        sala = await Sala(servidor=ctx.guild.id).get()
+        await Comando(sala=sala, autor=ctx.author.id, comando=f'?test {arguments}').save()
+        await ctx.send(f'{len(args)} arguments: {arguments}')
+
+    except Exception as e:
+        await ctx.send(f'Erro ao testar função com argumentos: {e}')
 
 
 @bot.command(name='ping', help='Ping-Pong')
 async def ping(ctx):
-    await ctx.send('pong!')
+    try:
+        sala = await Sala(servidor=ctx.guild.id).get()
+        await Comando(sala=sala, autor=ctx.author.id, comando='?ping').save()
+        await ctx.send('pong!')
+
+    except Exception as e:
+        await ctx.send(f'Erro ao pingar: {e}')
 
 
-@bot.command(name='roll', help='Simulates rolling dice')
-async def roll(ctx, number_of_dice: int, number_of_sides: int):
-    dice = [str(random.choice(range(1, number_of_sides + 1))) for _ in range(number_of_dice)]
-    await ctx.send(', '.join(dice))
+@bot.command(name='roll', help='Simulates rolling dice. Two args: number of dice and number of sides (f.e: ?roll 1 6)')
+async def roll(ctx, *args):
+    if len(args) == 2:
+        try:
+            dice = [str(random.choice(range(1, int(args[0]) + 1))) for _ in range(int(args[1]))]
+            await ctx.send(', '.join(dice))
+            
+            sala = await Sala(servidor=ctx.guild.id).get()
+            await Comando(sala=sala, autor=ctx.author.id, comando='?roll').save()
+        
+        except Exception as e:
+            await ctx.send(f'Erro ao rolar o dado: {e}')
+
+    else:
+        await ctx.send('Por favor envie os argumentos: número de dados e número de lados (ambos números inteiros)')
 
 
 @bot.command(name='join', help='Connect to the current channel')
@@ -41,6 +66,10 @@ async def join(ctx):
 
         voice_client = await voice_channel.connect()
         voice_clients[ctx.guild.id] = voice_client
+
+        sala = await Sala(servidor=ctx.guild.id).get()
+        await Comando(sala=sala, autor=ctx.author.id, comando='?join').save()
+
         return voice_client
 
     except discord.ClientException:
@@ -50,9 +79,13 @@ async def join(ctx):
 @bot.command(name='leave', help='Disconnect from the current channel')
 async def leave(ctx):
     try:
+        sala = await Sala(servidor=ctx.guild.id).get()
+        await Comando(sala=sala, autor=ctx.author.id, comando='?leave').save()
         await voice_clients[ctx.guild.id].disconnect()
+
     except KeyError:
         await ctx.send('Não estou conectado em nenhum canal de voz')
+        
     except Exception as e:
         await ctx.send(f'Erro ao tentar sair do canal: {e}')
 
@@ -65,17 +98,20 @@ async def play(ctx, *args):
         await ctx.send('Por favor, forneça uma URL ou o título da música para pesquisar')
         return
     
-    query = ' '.join(args)
-    if validators.url(query):
-        url = query
+    arguments = ' '.join(args)
+    if validators.url(arguments):
+        url = arguments
     else:
-        results = YoutubeSearch(query, max_results=10).to_dict()
+        results = YoutubeSearch(arguments, max_results=10).to_dict()
         if results:
             url = f'https://www.youtube.com{results[0]["url_suffix"]}'
         else:
             await ctx.send('Nenhuma música encontrada')
             return
-    
+        
+    sala = await Sala(servidor=ctx.guild.id).get()
+    await Comando(sala=sala, autor=ctx.author.id, comando=f'?play {arguments}').save()
+
     try:
         if ctx.guild.id not in queue_clients:
             queue_clients[ctx.guild.id] = [url]
@@ -91,9 +127,15 @@ async def play(ctx, *args):
 @bot.command(name='pause', help='Pause the current song')
 async def pause(ctx):
     try:
-        voice_clients[ctx.guild.id].pause()
+        sala = await Sala(servidor=ctx.guild.id).get()
+        await Comando(sala=sala, autor=ctx.author.id, comando='?pause').save()
+
+        if voice_clients[ctx.guild.id].is_playing():
+            voice_clients[ctx.guild.id].pause()
+
     except KeyError:
         await ctx.send('Não estou reproduzindo nenhuma música')
+
     except Exception as e:
         await ctx.send(f'Erro ao tentar pausar: {e}')
 
@@ -101,9 +143,15 @@ async def pause(ctx):
 @bot.command(name='resume', help='Resume paused song')
 async def resume(ctx):
     try:
-        voice_clients[ctx.guild.id].resume()
+        sala = await Sala(servidor=ctx.guild.id).get()
+        await Comando(sala=sala, autor=ctx.author.id, comando='?resume').save()
+
+        if voice_clients[ctx.guild.id].is_paused():
+            voice_clients[ctx.guild.id].resume()
+
     except KeyError:
         await ctx.send('Não estou reproduzindo nenhuma música')
+
     except Exception as e:
         await ctx.send(f'Erro ao tentar voltar a reproduzir: {e}')
 
@@ -111,21 +159,31 @@ async def resume(ctx):
 @bot.command(name='stop', help='Stop the current song')
 async def stop(ctx):
     try:
-        voice_clients[ctx.guild.id].stop()
+        sala = await Sala(servidor=ctx.guild.id).get()
+        await Comando(sala=sala, autor=ctx.author.id, comando='?stop').save()
+
+        if not voice_clients[ctx.guild.id].is_playing():
+            voice_clients[ctx.guild.id].stop()
+
     except KeyError:
         await ctx.send('Não estou reproduzindo nenhuma música')
+
     except Exception as e:
-        await ctx.send(f'Erro ao tentar parar: {e}')
+        await ctx.send(f'Erro ao tentar parar música: {e}')
 
 
 @bot.command(name='queue', help='Display the current music queue')
 async def queue(ctx):
     try:
-        queue = voice_clients[ctx.guild.id]['queue']
+        sala = await Sala(servidor=ctx.guild.id).get()
+        await Comando(sala=sala, autor=ctx.author.id, comando='?queue').save()
+
+        queue = queue_clients[ctx.guild.id]
         if not queue:
             await ctx.send('A fila está vazia')
         else:
-            await ctx.send(f'Music Queue: {", ".join(queue)}')
+            await ctx.send(f'Fila: {", ".join(queue)}')
+
     except KeyError:
         await ctx.send('Não estou conectado em nenhum canal de voz')
 
@@ -133,6 +191,9 @@ async def queue(ctx):
 @bot.command(name='skip', help='Next song in queue')
 async def skip(ctx):
     try:
+        sala = await Sala(servidor=ctx.guild.id).get()
+        await Comando(sala=sala, autor=ctx.author.id, comando='?skip').save()
+
         queue = queue_clients[ctx.guild.id]        
         if len(queue) >= 1:
 
@@ -159,9 +220,12 @@ async def skip(ctx):
 
 @bot.command(name='question', help='Make a question for Gemini IA')
 async def question(ctx, *args):
-    query = ' '.join(args)
+    arguments = ' '.join(args)
     try:
-        resposta = await question_gemini(query)
+        sala = await Sala(servidor=ctx.guild.id).get()
+        await Comando(sala=sala, autor=ctx.author.id, comando=f'?question {arguments}').save()
+
+        resposta = await question_gemini(ctx, arguments)
         await ctx.send(resposta)
 
     except Exception as e:
@@ -170,19 +234,23 @@ async def question(ctx, *args):
 
 @bot.command(name='vision', help='Generate text from image and text inputs from Gemini Vision IA')
 async def vision(ctx, *args):
-    query = ' '.join(args)
+    arguments = ' '.join(args)
 
     if ctx.message.attachments:
         for attachment in ctx.message.attachments:
             if attachment.width is not None and attachment.height is not None:
                 try:
+                    sala = await Sala(servidor=ctx.guild.id).get()
+                    await Comando(sala=sala, autor=ctx.author.id, comando=f'?vision {arguments}').save()
+
                     img_content = await attachment.read()
                     img = Image.open(io.BytesIO(img_content))
-                    resposta = await vision_gemini(query, img)
+                    resposta = await vision_gemini(ctx, arguments, img)
                     await ctx.send(resposta)
                     
                 except Exception as e:
                     await ctx.send(f'Erro ao abrir a imagem: {e}')
                     return
                 
-            await ctx.send('A mensagem não possui uma imagem')
+            else:
+                await ctx.send('A mensagem não possui uma imagem')
