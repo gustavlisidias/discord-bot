@@ -4,6 +4,7 @@ import asyncio
 import validators
 import io
 
+from discord import Spotify
 from settings import bot, ytdl, ffmpeg_path, ffmpeg_options
 from models import Sala, Comando
 from gemini import question_gemini, vision_gemini
@@ -19,9 +20,12 @@ queue_clients = {}
 async def test(ctx, *args):
     try:
         arguments = ', '.join(args)
-        sala = await Sala(servidor=ctx.guild.id).get()
-        await Comando(sala=sala, autor=ctx.author.id, comando=f'?test {arguments}').save()
-        await ctx.send(f'{len(args)} arguments: {arguments}')
+        if arguments:
+            sala = await Sala(servidor=ctx.guild.id).get()
+            await Comando(sala=sala, autor=ctx.author.id, comando=f'?test {arguments}').save()
+            await ctx.send(f'{len(args)} parametro: {arguments}')
+        else:
+            await ctx.send('Por favor envie parametros para a função de teste')
 
     except Exception as e:
         await ctx.send(f'Erro ao testar função com argumentos: {e}')
@@ -40,54 +44,74 @@ async def ping(ctx):
 
 @bot.command(name='roll', help='Simulates rolling dice. Two args: number of dice and number of sides (f.e: ?roll 1 6)')
 async def roll(ctx, *args):
-    if len(args) == 2:
-        try:
-            dice = [str(random.choice(range(1, int(args[0]) + 1))) for _ in range(int(args[1]))]
-            await ctx.send(', '.join(dice))
-            
+    try:
+        if len(args) == 2:
             sala = await Sala(servidor=ctx.guild.id).get()
-            await Comando(sala=sala, autor=ctx.author.id, comando='?roll').save()
-        
-        except Exception as e:
-            await ctx.send(f'Erro ao rolar o dado: {e}')
+            dice = [str(random.choice(range(1, int(args[0]) + 1))) for _ in range(int(args[1]))]
 
-    else:
-        await ctx.send('Por favor envie os argumentos: número de dados e número de lados (ambos números inteiros)')
+            await Comando(sala=sala, autor=ctx.author.id, comando='?roll').save()
+            await ctx.send(', '.join(dice))            
+
+        else:
+            await ctx.send('Por favor envie 2 parametros: número de dados e número de lados (ambos números inteiros)')
+
+    except Exception as e:
+                await ctx.send(f'Erro ao rolar o dado: {e}')
+
+
+@bot.command(name='spotify', help='Shows some info about the song a user is listening')
+async def spotify(ctx, user: discord.Member=None):
+    user = user or ctx.author
+    for activity in user.activities:
+        if isinstance(activity, Spotify):
+            # await ctx.send(f'{user} is listening to {activity.title} by {activity.artist}')
+            embed = discord.Embed(title=f"{user.name}'s Spotify", description='Listening to {}'.format(activity.title), color=0xC902FF)
+            embed.set_thumbnail(url=activity.album_cover_url)
+            embed.add_field(name='Artist', value=activity.artist)
+            embed.add_field(name='Album', value=activity.album)
+            embed.set_footer(text='Song started at {}'.format(activity.created_at.strftime('%H:%M')))
+            await ctx.send(embed=embed)
 
 
 @bot.command(name='join', help='Connect to the current channel')
 async def join(ctx):
-    try:
-        voice_channel = ctx.author.voice.channel
+    if ctx.guild.id not in voice_clients:
+        try:
+            voice_channel = ctx.author.voice.channel
 
-        if not voice_channel:
-            await ctx.send('Você precisa estar em um canal de voz!')
-            return
+            if not voice_channel:
+                await ctx.send('Você precisa estar em um canal de voz!')
+                return
 
-        voice_client = await voice_channel.connect()
-        voice_clients[ctx.guild.id] = voice_client
+            voice_client = await voice_channel.connect()
+            voice_clients[ctx.guild.id] = voice_client
 
-        sala = await Sala(servidor=ctx.guild.id).get()
-        await Comando(sala=sala, autor=ctx.author.id, comando='?join').save()
+            sala = await Sala(servidor=ctx.guild.id).get()
+            await Comando(sala=sala, autor=ctx.author.id, comando='?join').save()
 
-        return voice_client
+            return voice_client
 
-    except discord.ClientException:
-        return
+        except Exception as e:
+            await ctx.send(f'Erro ao entrar no canal de voz: {e}')
 
 
 @bot.command(name='leave', help='Disconnect from the current channel')
 async def leave(ctx):
-    try:
-        sala = await Sala(servidor=ctx.guild.id).get()
-        await Comando(sala=sala, autor=ctx.author.id, comando='?leave').save()
-        await voice_clients[ctx.guild.id].disconnect()
+    if ctx.guild.id in voice_clients:
+        try:
+            sala = await Sala(servidor=ctx.guild.id).get()
+            await Comando(sala=sala, autor=ctx.author.id, comando='?leave').save()
+            await voice_clients[ctx.guild.id].disconnect()
+            del voice_clients[ctx.guild.id]
 
-    except KeyError:
+            if ctx.guild.id in queue_clients:
+                del queue_clients[ctx.guild.id]
+            
+        except Exception as e:
+            await ctx.send(f'Erro ao tentar sair do canal: {e}')
+            
+    else:
         await ctx.send('Não estou conectado em nenhum canal de voz')
-        
-    except Exception as e:
-        await ctx.send(f'Erro ao tentar sair do canal: {e}')
 
 
 @bot.command(name='play', help='Play a song from URL or search for your music')
@@ -104,7 +128,7 @@ async def play(ctx, *args):
     else:
         results = YoutubeSearch(arguments, max_results=10).to_dict()
         if results:
-            url = f'https://www.youtube.com{results[0]["url_suffix"]}'
+            url = f"https://www.youtube.com{results[0]['url_suffix']}"
         else:
             await ctx.send('Nenhuma música encontrada')
             return
@@ -126,131 +150,156 @@ async def play(ctx, *args):
 
 @bot.command(name='pause', help='Pause the current song')
 async def pause(ctx):
-    try:
-        sala = await Sala(servidor=ctx.guild.id).get()
-        await Comando(sala=sala, autor=ctx.author.id, comando='?pause').save()
+    if ctx.guild.id in voice_clients:
+        try:
+            sala = await Sala(servidor=ctx.guild.id).get()
+            await Comando(sala=sala, autor=ctx.author.id, comando='?pause').save()
 
-        if voice_clients[ctx.guild.id].is_playing():
-            voice_clients[ctx.guild.id].pause()
+            if voice_clients[ctx.guild.id].is_playing():
+                voice_clients[ctx.guild.id].pause()
 
-    except KeyError:
-        await ctx.send('Não estou reproduzindo nenhuma música')
+            else:
+                await ctx.send('Não estou reproduzindo nenhuma música')
 
-    except Exception as e:
-        await ctx.send(f'Erro ao tentar pausar: {e}')
+        except Exception as e:
+            await ctx.send(f'Erro ao tentar pausar: {e}')
+
+    else:
+        await ctx.send('Não estou conectado em nenhum canal de voz')
 
 
 @bot.command(name='resume', help='Resume paused song')
 async def resume(ctx):
-    try:
-        sala = await Sala(servidor=ctx.guild.id).get()
-        await Comando(sala=sala, autor=ctx.author.id, comando='?resume').save()
+    if ctx.guild.id in voice_clients:
+        try:
+            sala = await Sala(servidor=ctx.guild.id).get()
+            await Comando(sala=sala, autor=ctx.author.id, comando='?resume').save()
 
-        if voice_clients[ctx.guild.id].is_paused():
-            voice_clients[ctx.guild.id].resume()
+            if voice_clients[ctx.guild.id].is_paused():
+                voice_clients[ctx.guild.id].resume()
+                return
 
-    except KeyError:
-        await ctx.send('Não estou reproduzindo nenhuma música')
+            if not voice_clients[ctx.guild.id].is_playing():
+                await ctx.send('Não estou reproduzindo nenhuma música')
+                return
 
-    except Exception as e:
-        await ctx.send(f'Erro ao tentar voltar a reproduzir: {e}')
+        except Exception as e:
+            await ctx.send(f'Erro ao tentar voltar a reproduzir: {e}')
+    else:
+        await ctx.send('Não estou conectado em nenhum canal de voz')
 
 
 @bot.command(name='stop', help='Stop the current song')
 async def stop(ctx):
-    try:
-        sala = await Sala(servidor=ctx.guild.id).get()
-        await Comando(sala=sala, autor=ctx.author.id, comando='?stop').save()
+    if ctx.guild.id in voice_clients:
+        try:
+            sala = await Sala(servidor=ctx.guild.id).get()
+            await Comando(sala=sala, autor=ctx.author.id, comando='?stop').save()
 
-        if not voice_clients[ctx.guild.id].is_playing():
-            voice_clients[ctx.guild.id].stop()
+            if voice_clients[ctx.guild.id].is_playing():
+                voice_clients[ctx.guild.id].stop()
 
-    except KeyError:
-        await ctx.send('Não estou reproduzindo nenhuma música')
+            else:
+                await ctx.send('Não estou reproduzindo nenhuma música')
 
-    except Exception as e:
-        await ctx.send(f'Erro ao tentar parar música: {e}')
+        except Exception as e:
+            await ctx.send(f'Erro ao tentar parar música: {e}')
+
+    else:
+        await ctx.send('Não estou conectado em nenhum canal de voz')
 
 
 @bot.command(name='queue', help='Display the current music queue')
 async def queue(ctx):
-    try:
-        sala = await Sala(servidor=ctx.guild.id).get()
-        await Comando(sala=sala, autor=ctx.author.id, comando='?queue').save()
+    if ctx.guild.id in voice_clients:
+        try:
+            if ctx.guild.id in queue_clients:
+                sala = await Sala(servidor=ctx.guild.id).get()
+                queue = queue_clients[ctx.guild.id]
 
-        queue = queue_clients[ctx.guild.id]
-        if not queue:
-            await ctx.send('A fila está vazia')
-        else:
-            await ctx.send(f'Fila: {", ".join(queue)}')
+                await Comando(sala=sala, autor=ctx.author.id, comando='?queue').save()
+                await ctx.send(f"Fila: {', '.join(queue)}")
+            
+            else:
+                await ctx.send('A fila está vazia')
 
-    except KeyError:
+        except Exception as e:
+            await ctx.send(f'Erro ao tentar visualizar a fila: {e}')
+    else:
         await ctx.send('Não estou conectado em nenhum canal de voz')
 
 
 @bot.command(name='skip', help='Next song in queue')
 async def skip(ctx):
-    try:
-        sala = await Sala(servidor=ctx.guild.id).get()
-        await Comando(sala=sala, autor=ctx.author.id, comando='?skip').save()
+    if ctx.guild.id in voice_clients:
+        try:
+            if ctx.guild.id in queue_clients:
+                if len(queue_clients[ctx.guild.id]) >= 1:
+                    if voice_clients[ctx.guild.id].is_playing():
+                        voice_clients[ctx.guild.id].stop()
 
-        queue = queue_clients[ctx.guild.id]        
-        if len(queue) >= 1:
+                    url = queue_clients[ctx.guild.id].pop(0)
+                    loop = asyncio.get_event_loop()
+                    data = await loop.run_in_executor(None, lambda: ytdl.extract_info(url, download=False))
+                    song = data['url']
+                    player = discord.FFmpegPCMAudio(song, executable=ffmpeg_path, **ffmpeg_options)
+                    player = discord.PCMVolumeTransformer(original=player, volume=0.8)
+                    voice_clients[ctx.guild.id].play(player, after=lambda e: asyncio.run_coroutine_threadsafe(skip(ctx), bot.loop))
+                    await ctx.send(f'Tocando agora: {url}')
 
-            if voice_clients[ctx.guild.id].is_playing():
-                await stop(ctx)
+                else:
+                    return
 
-            url = queue_clients[ctx.guild.id].pop(0)
-            loop = asyncio.get_event_loop()
-            data = await loop.run_in_executor(None, lambda: ytdl.extract_info(url, download=False))
-            song = data['url']
-            player = discord.FFmpegPCMAudio(song, executable=ffmpeg_path, **ffmpeg_options)
-            player = discord.PCMVolumeTransformer(original=player, volume=0.8)
-            voice_clients[ctx.guild.id].play(player, after=lambda e: asyncio.run_coroutine_threadsafe(skip(ctx), bot.loop))
+            else:
+                await ctx.send('A fila está vazia')
 
-        else:
-            await ctx.send('A lista está vazia')
-            await stop(ctx)
-            del queue_clients[ctx.guild.id]
-            return
+        except Exception as e:
+            await ctx.send(f'Ocorreu um erro ao tocar a próxima música: {e}')
 
-    except Exception as e:
-        await ctx.send(f'Ocorreu um erro ao tocar a próxima música: {e}')
+    else:
+        await ctx.send('Não estou conectado em nenhum canal de voz')
 
 
 @bot.command(name='question', help='Make a question for Gemini IA')
 async def question(ctx, *args):
-    arguments = ' '.join(args)
-    try:
-        sala = await Sala(servidor=ctx.guild.id).get()
-        await Comando(sala=sala, autor=ctx.author.id, comando=f'?question {arguments}').save()
+    if args:
+        try:
+            arguments = ' '.join(args)
+            sala = await Sala(servidor=ctx.guild.id).get()
+            resposta = await question_gemini(ctx, arguments)
 
-        resposta = await question_gemini(ctx, arguments)
-        await ctx.send(resposta)
+            await Comando(sala=sala, autor=ctx.author.id, comando=f'?question {arguments}').save()                
+            await ctx.send(resposta)
 
-    except Exception as e:
-        await ctx.send(f'Ocorreu um erro ao realizar a pergunta: {e}')
+        except Exception as e:
+            await ctx.send(f'Ocorreu um erro ao realizar a pergunta: {e}')
+
+    else:
+        await ctx.send('Por favor envie uma pergunta')
 
 
 @bot.command(name='vision', help='Generate text from image and text inputs from Gemini Vision IA')
 async def vision(ctx, *args):
-    arguments = ' '.join(args)
+    if args:
+        if ctx.message.attachments:
+            for attachment in ctx.message.attachments:
+                if attachment.width is not None and attachment.height is not None:
+                    try:
+                        arguments = ' '.join(args)
+                        sala = await Sala(servidor=ctx.guild.id).get()
+                        img_content = await attachment.read()
+                        img = Image.open(io.BytesIO(img_content))
+                        resposta = await vision_gemini(ctx, arguments, img)
 
-    if ctx.message.attachments:
-        for attachment in ctx.message.attachments:
-            if attachment.width is not None and attachment.height is not None:
-                try:
-                    sala = await Sala(servidor=ctx.guild.id).get()
-                    await Comando(sala=sala, autor=ctx.author.id, comando=f'?vision {arguments}').save()
-
-                    img_content = await attachment.read()
-                    img = Image.open(io.BytesIO(img_content))
-                    resposta = await vision_gemini(ctx, arguments, img)
-                    await ctx.send(resposta)
+                        await ctx.send(resposta)
+                        await Comando(sala=sala, autor=ctx.author.id, comando=f'?vision {arguments}').save()
+                        
+                    except Exception as e:
+                        await ctx.send(f'Erro ao abrir a imagem: {e}')
+                        return
                     
-                except Exception as e:
-                    await ctx.send(f'Erro ao abrir a imagem: {e}')
-                    return
-                
-            else:
-                await ctx.send('A mensagem não possui uma imagem')
+                else:
+                    await ctx.send('A mensagem não possui uma imagem')
+
+    else:
+        await ctx.send('Por favor envie uma mensagem que possua uma imagem')

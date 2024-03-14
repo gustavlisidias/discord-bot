@@ -10,6 +10,7 @@ from PIL import Image
 @bot.event
 async def on_ready():
     await Log(funcao='on_ready', mensagem='conectado como {0.user}'.format(bot)).save()
+    await bot.change_presence(activity=discord.Activity(type=discord.ActivityType.listening, name="Spotify"))
     print('Estou conectado como {0.user}'.format(bot))
 
 
