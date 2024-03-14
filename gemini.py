@@ -1,13 +1,13 @@
 # Doc: https://ai.google.dev/tutorials/python_quickstart
 import google.generativeai as genai
 
-from settings import gkey, generation_config, safety_config
-from models import Mensagem, Sala
-from utils import image_to_byte
-
 from google.api_core.exceptions import InternalServerError
 from google.generativeai.types import content_types
 from google.generativeai.generative_models import ChatSession
+
+from settings import gkey, generation_config, safety_config
+from models import Mensagem, Sala
+from utils import image_to_byte
 
 
 genai.configure(api_key=gkey)

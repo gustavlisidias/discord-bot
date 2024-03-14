@@ -1,8 +1,8 @@
 import os
 import yt_dlp
+import discord
 
 from dotenv import load_dotenv
-from discord import Intents
 from discord.ext import commands
 from google.generativeai.types.safety_types import HarmCategory, HarmBlockThreshold
 
@@ -17,15 +17,9 @@ pgpass = os.getenv('PASS_PG')
 pgbase = 'discord'
 pghost = 'localhost'
 
-intents = Intents.default()
-intents.message_content = True
-intents.messages = True
-intents.guilds = True
-intents.members = True
-
 prefix = '?'
-help_command = commands.DefaultHelpCommand(no_category = 'Commands')
-bot = commands.Bot(command_prefix=commands.when_mentioned_or(prefix), help_command=help_command, intents=intents)
+help_command = commands.DefaultHelpCommand(no_category='Commands')
+bot = commands.Bot(command_prefix=commands.when_mentioned_or(prefix), help_command=help_command, intents=discord.Intents.all(), allowed_mentions=discord.AllowedMentions.none())
 
 ytdl = yt_dlp.YoutubeDL({'format': 'bestaudio/best'})
 ffmpeg_path = 'C:/ffmpeg/ffmpeg.exe'

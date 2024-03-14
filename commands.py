@@ -4,12 +4,14 @@ import asyncio
 import validators
 import io
 
-from discord import Spotify
-from settings import bot, ytdl, ffmpeg_path, ffmpeg_options
-from models import Sala, Comando
-from gemini import question_gemini, vision_gemini
+from discord.ext import commands
+from discordify import Spotify
 from youtube_search import YoutubeSearch
 from PIL import Image
+
+from settings import bot, ytdl, ffmpeg_path, ffmpeg_options
+from gemini import question_gemini, vision_gemini
+from models import Sala, Comando
 
 
 voice_clients = {}
@@ -58,19 +60,13 @@ async def roll(ctx, *args):
     except Exception as e:
                 await ctx.send(f'Erro ao rolar o dado: {e}')
 
-
-@bot.command(name='spotify', help='Shows some info about the song a user is listening')
-async def spotify(ctx, user: discord.Member=None):
-    user = user or ctx.author
-    for activity in user.activities:
-        if isinstance(activity, Spotify):
-            # await ctx.send(f'{user} is listening to {activity.title} by {activity.artist}')
-            embed = discord.Embed(title=f"{user.name}'s Spotify", description='Listening to {}'.format(activity.title), color=0xC902FF)
-            embed.set_thumbnail(url=activity.album_cover_url)
-            embed.add_field(name='Artist', value=activity.artist)
-            embed.add_field(name='Album', value=activity.album)
-            embed.set_footer(text='Song started at {}'.format(activity.created_at.strftime('%H:%M')))
-            await ctx.send(embed=embed)
+                
+@bot.command(name="spotify")
+async def spotify(ctx: commands.Context, member: discord.Member = None):
+    member = member or ctx.author
+    client = Spotify(bot=bot, member=member)
+    content, image, view = await client.get()
+    await ctx.reply(content=content, file=image, view=view)
 
 
 @bot.command(name='join', help='Connect to the current channel')

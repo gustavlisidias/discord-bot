@@ -1,10 +1,11 @@
 import discord
 import io
 
+from PIL import Image
+
 from settings import bot, prefix
 from models import Log, Sala
 from gemini import chat_gemini
-from PIL import Image
 
 
 @bot.event
