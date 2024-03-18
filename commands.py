@@ -1,7 +1,6 @@
 import random
 import discord
 import asyncio
-import validators
 import io
 
 from discord.ext import commands
@@ -73,13 +72,11 @@ async def spotify(ctx: commands.Context, member: discord.Member = None):
 async def join(ctx):
     if ctx.guild.id not in voice_clients:
         try:
-            voice_channel = ctx.author.voice.channel
-
-            if not voice_channel:
+            if not ctx.message.author.voice:
                 await ctx.send('Você precisa estar em um canal de voz!')
                 return
 
-            voice_client = await voice_channel.connect()
+            voice_client = await ctx.author.voice.channel.connect()
             voice_clients[ctx.guild.id] = voice_client
 
             sala = await Sala(servidor=ctx.guild.id).get()
@@ -89,6 +86,9 @@ async def join(ctx):
 
         except Exception as e:
             await ctx.send(f'Erro ao entrar no canal de voz: {e}')
+
+    else:
+        return voice_clients[ctx.guild.id]
 
 
 @bot.command(name='leave', help='Disconnect from the current channel')
@@ -112,36 +112,38 @@ async def leave(ctx):
 
 @bot.command(name='play', help='Play a song from URL or search for your music')
 async def play(ctx, *args):
-    await join(ctx)
-
     if not args:
         await ctx.send('Por favor, forneça uma URL ou o título da música para pesquisar')
         return
     
-    arguments = ' '.join(args)
-    if validators.url(arguments):
-        url = arguments
-    else:
+    voice_client = await join(ctx)
+    if voice_client:
+        arguments = ' '.join(args)
         results = YoutubeSearch(arguments, max_results=10).to_dict()
+
         if results:
             url = f"https://www.youtube.com{results[0]['url_suffix']}"
+            title = f"{results[0]['title']}"
+            
+            sala = await Sala(servidor=ctx.guild.id).get()
+            await Comando(sala=sala, autor=ctx.author.id, comando=f'?play {arguments}').save()
+
+            try:
+                # Se a fila não existe OU se ela está vazia e não está tocando uma musica
+                if (ctx.guild.id not in queue_clients) or (len(queue_clients[ctx.guild.id]) == 0 and not voice_clients[ctx.guild.id].is_playing()):
+                    queue_clients[ctx.guild.id] = [{'url': url, 'title': title}]
+                    await skip(ctx)
+                else:
+                    queue_clients[ctx.guild.id].append({'url': url, 'title': title})
+                    await ctx.send(f'A música {title} foi adicionada à fila')
+
+            except Exception as e:
+                await ctx.send(f'Ocorreu um erro ao reproduzir a música: {e}')
+                return
+        
         else:
             await ctx.send('Nenhuma música encontrada')
             return
-        
-    sala = await Sala(servidor=ctx.guild.id).get()
-    await Comando(sala=sala, autor=ctx.author.id, comando=f'?play {arguments}').save()
-
-    try:
-        if ctx.guild.id not in queue_clients:
-            queue_clients[ctx.guild.id] = [url]
-            await skip(ctx)
-        else:
-            queue_clients[ctx.guild.id].append(url)
-            await ctx.send(f'A música {url} foi adicionada à fila')
-
-    except Exception as e:
-        await ctx.send(f'Ocorreu um erro ao reproduzir a música: {e}')
 
 
 @bot.command(name='pause', help='Pause the current song')
@@ -214,13 +216,19 @@ async def queue(ctx):
                 queue = queue_clients[ctx.guild.id]
 
                 await Comando(sala=sala, autor=ctx.author.id, comando='?queue').save()
-                await ctx.send(f"Fila: {', '.join(queue)}")
-            
+
+                if queue:
+                    queue_list = '\n'.join([f"{index+1}. {item['title']}" for index, item in enumerate(queue)])
+                    await ctx.send(f"Fila de Reprodução:\n{queue_list}")
+                else:
+                    await ctx.send('A fila está vazia')
+
             else:
                 await ctx.send('A fila está vazia')
 
         except Exception as e:
             await ctx.send(f'Erro ao tentar visualizar a fila: {e}')
+
     else:
         await ctx.send('Não estou conectado em nenhum canal de voz')
 
@@ -234,14 +242,17 @@ async def skip(ctx):
                     if voice_clients[ctx.guild.id].is_playing():
                         voice_clients[ctx.guild.id].stop()
 
-                    url = queue_clients[ctx.guild.id].pop(0)
+                    queue = queue_clients[ctx.guild.id].pop(0)
+                    url = queue['url']
+                    title = queue['title']
+
                     loop = asyncio.get_event_loop()
                     data = await loop.run_in_executor(None, lambda: ytdl.extract_info(url, download=False))
                     song = data['url']
                     player = discord.FFmpegPCMAudio(song, executable=ffmpeg_path, **ffmpeg_options)
                     player = discord.PCMVolumeTransformer(original=player, volume=0.8)
                     voice_clients[ctx.guild.id].play(player, after=lambda e: asyncio.run_coroutine_threadsafe(skip(ctx), bot.loop))
-                    await ctx.send(f'Tocando agora: {url}')
+                    await ctx.send(f'Tocando agora: {title}')
 
                 else:
                     return
